@@ -51,8 +51,18 @@ def get_raw_database_url() -> str:
     return raw
 
 
-def get_engine() -> AsyncEngine:
+from sqlalchemy.pool import NullPool
+
+
+def get_engine(*, force_null_pool: bool = False) -> AsyncEngine:
     global _engine
+    use_null = force_null_pool or os.getenv("ORCA_DB_POOL", "").lower() in ("null", "nullpool")
+    if use_null:
+        return create_async_engine(
+            get_async_database_url(),
+            poolclass=NullPool,
+            echo=os.getenv("SQL_ECHO", "false").lower() in ("1", "true", "yes"),
+        )
     if _engine is None:
         url = get_async_database_url()
         _engine = create_async_engine(
@@ -65,8 +75,16 @@ def get_engine() -> AsyncEngine:
     return _engine
 
 
-def get_session_factory() -> async_sessionmaker[AsyncSession]:
+def get_session_factory(*, force_null_pool: bool = False) -> async_sessionmaker[AsyncSession]:
     global _session_factory
+    use_null = force_null_pool or os.getenv("ORCA_DB_POOL", "").lower() in ("null", "nullpool")
+    if use_null:
+        return async_sessionmaker(
+            bind=get_engine(force_null_pool=True),
+            class_=AsyncSession,
+            expire_on_commit=False,
+            autoflush=False,
+        )
     if _session_factory is None:
         _session_factory = async_sessionmaker(
             bind=get_engine(),

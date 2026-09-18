@@ -10,6 +10,7 @@ in the deployment environment rather than inventing an API here.
 from __future__ import annotations
 
 import math
+import os
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from time import perf_counter
@@ -46,6 +47,7 @@ from orca.schemas.pfz_contract import (
     PFZQuery,
     PFZQueryResult,
 )
+from orca.services.geospatial import calculate_distance_postgis
 
 
 class PFZSourceUnavailable(Exception):
@@ -331,7 +333,15 @@ async def geospatial_agent(
         status=ToolStatus.RUNNING,
     )
     started = perf_counter()
-    distance_result = calculate_distance(request)
+    spatial_mode = os.getenv("ORCA_SPATIAL_MODE", "haversine").strip().lower()
+    if spatial_mode == "postgis":
+        distance_result = await calculate_distance_postgis(request)
+    elif spatial_mode == "haversine":
+        distance_result = calculate_distance(request)
+    else:
+        raise ValueError(
+            "Unsupported ORCA_SPATIAL_MODE. Use 'postgis' or 'haversine'."
+        )
 
     computed_evidence: list[Evidence] = []
     ranked_rows: list[tuple[PFZPoint, float, float, Evidence]] = []
@@ -597,7 +607,7 @@ async def run_pfz_query(
         confidence=0.0,
         evidence_summary=evidence,
         limitations=agent_result.limitations + [
-            "Distance is deterministic; production uses PostGIS geography, development/tests use a haversine fallback."
+            f"Distance is deterministic; calculation method: {geo_result.result['method']}."
         ],
         map_overlays=[
             MapOverlay(

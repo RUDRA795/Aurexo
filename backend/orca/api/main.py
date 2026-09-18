@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -21,8 +22,13 @@ class PFZRequest(BaseModel):
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "orca-api"}
+async def health() -> dict[str, Any]:
+    try:
+        from orca.database.session import check_database_health
+        db_health = await check_database_health()
+    except Exception as exc:
+        db_health = {"status": "unreachable", "error": str(exc)}
+    return {"status": "ok", "service": "orca-api", "database": db_health}
 
 
 @app.post("/v1/pfz/query")

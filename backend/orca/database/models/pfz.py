@@ -70,8 +70,12 @@ class PFZPointModel(Base, TimestampMixin):
         source_id: str = "incois",
         access_tier: str = "text_advisory",
         raw_metadata: dict[str, Any] | None = None,
+        created_at: datetime | None = None,
+        updated_at: datetime | None = None,
     ) -> PFZPointModel:
         """Factory creating model instance from typed contract PFZPoint."""
+        from orca.schemas.orca_contract import utc_now
+        now = utc_now()
         wkt_geom = f"SRID=4326;POINT({p.location.lon} {p.location.lat})"
         return cls(
             pfz_id=p.pfz_id,
@@ -89,4 +93,6 @@ class PFZPointModel(Base, TimestampMixin):
             source_id=source_id,
             access_tier=access_tier,
             raw_metadata=raw_metadata,
+            created_at=created_at or now,
+            updated_at=updated_at or now,
         )

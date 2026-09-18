@@ -108,22 +108,29 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 
 async def check_database_health() -> dict[str, Any]:
     """Probe DB connectivity and verify PostGIS / pgvector extensions."""
-    engine = get_engine()
-    async with engine.connect() as conn:
-        result = await conn.execute(text("SELECT 1 AS alive"))
-        alive = result.scalar() == 1
-
-        ext_result = await conn.execute(
-            text(
+    import asyncpg
+    raw_url = get_raw_database_url()
+    try:
+        conn = await asyncpg.connect(raw_url)
+        try:
+            alive = (await conn.fetchval("SELECT 1")) == 1
+            ext_rows = await conn.fetch(
                 "SELECT extname, extversion FROM pg_extension WHERE extname IN ('postgis', 'vector')"
             )
-        )
-        extensions = {row[0]: row[1] for row in ext_result.fetchall()}
-
+            extensions = {row["extname"]: row["extversion"] for row in ext_rows}
+            return {
+                "status": "healthy" if alive else "unhealthy",
+                "database": "postgresql",
+                "postgis_version": extensions.get("postgis"),
+                "pgvector_version": extensions.get("vector"),
+                "extensions_ready": "postgis" in extensions and "vector" in extensions,
+            }
+        finally:
+            await conn.close()
+    except Exception as exc:
         return {
-            "status": "healthy" if alive else "unhealthy",
+            "status": "unhealthy",
+            "error": str(exc),
             "database": "postgresql",
-            "postgis_version": extensions.get("postgis"),
-            "pgvector_version": extensions.get("vector"),
-            "extensions_ready": "postgis" in extensions and "vector" in extensions,
+            "extensions_ready": False,
         }

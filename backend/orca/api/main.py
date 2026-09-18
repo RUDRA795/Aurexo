@@ -33,15 +33,26 @@ async def health() -> dict[str, Any]:
 
 @app.post("/v1/pfz/query")
 async def pfz_query(payload: PFZRequest):
-    source = MockPFZDataSource()
+    from orca.data.registry import TieredPFZProvider
+    provider = TieredPFZProvider()
     state = await run_pfz_query(
         query_text=payload.query,
         location=payload.location,
         valid_at=payload.valid_at,
-        sources=[source],
+        sources=[provider],
         radius_km=payload.radius_km,
         sector=payload.sector,
     )
     if state.final_answer is None:
         raise HTTPException(status_code=500, detail="ORCA produced no final response")
     return state.final_answer.model_dump(mode="json")
+
+
+@app.post("/v1/ingest/pfz")
+async def trigger_pfz_ingest(sector: str | None = None) -> dict[str, Any]:
+    from orca.services.ingestion import ingest_live_incois_pfz
+    try:
+        result = await ingest_live_incois_pfz(sector=sector)
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"INCOIS live ingestion failed: {exc}")

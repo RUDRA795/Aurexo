@@ -486,12 +486,16 @@ async def run_pfz_query(
     query_text: str,
     location: Geometry,
     valid_at: datetime,
-    sources: list[PFZDataSource],
+    sources: list[PFZDataSource] | None = None,
     fallback_sources: list[PFZDataSource] | None = None,
     *,
     radius_km: float = 300.0,
     sector: str | None = None,
 ) -> OrcaState:
+    if sources is None:
+        from orca.data.registry import TieredPFZProvider
+        sources = [TieredPFZProvider()]
+
     state = OrcaState(query=query_text, location=location, language="en", intent=Intent.PFZ_LOOKUP)
     state.plan = _build_plan()
     query = PFZQuery(location=location, valid_at=valid_at, radius_km=radius_km, sector=sector)
@@ -599,6 +603,17 @@ async def run_pfz_query(
         f"on a bearing of {nearest_bearing:.0f}°, in the {nearest.sector} sector "
         f"(valid until {validity})."
     )
+
+    try:
+        from orca.services.ingestion import sample_environmental_context
+        env_evidence = sample_environmental_context(nearest.location)
+        if env_evidence:
+            evidence.extend(env_evidence)
+            sst_ev = next((e for e in env_evidence if e.variable == "sea_surface_temperature"), None)
+            if sst_ev and isinstance(sst_ev.value, (int, float)):
+                answer += f" Surface sea temperature in this zone is {sst_ev.value:.1f}°C."
+    except Exception:
+        pass
 
     state.final_answer = FinalResponse(
         session_id=state.session_id,

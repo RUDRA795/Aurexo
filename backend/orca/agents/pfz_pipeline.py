@@ -641,3 +641,39 @@ async def run_pfz_query(
         trace=trace,
     )
     return state
+
+
+async def run_pfz_query_graph(
+    query_text: str,
+    location: Geometry | None = None,
+    *,
+    sector: str | None = None,
+    sources: list[PFZDataSource] | None = None,
+    sst_adapter: Any = None,
+    chl_adapter: Any = None,
+    weather_adapter: Any = None,
+) -> OrcaGraphState:
+    """Bridge function to execute the PFZ pipeline using the LangGraph hierarchical state graph."""
+    from orca.agents.graph import create_orca_graph
+    from orca.agents.state import OrcaGraphState
+
+    graph = create_orca_graph(
+        pfz_sources=sources,
+        sst_adapter=sst_adapter,
+        chl_adapter=chl_adapter,
+        weather_adapter=weather_adapter,
+    )
+
+    initial_state: OrcaGraphState = {
+        "user_query": query_text,
+        "coordinates": location,
+        "sector": sector,
+        "candidate_pfz_points": [],
+        "evidence_list": [],
+        "verification_results": [],
+        "provenance_traces": [],
+    }
+
+    result: OrcaGraphState = await graph.ainvoke(initial_state)
+    return result
+

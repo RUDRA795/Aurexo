@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 
+from orca.safety.ssrf import SSRFSecurityError, validate_url
 from orca.schemas.orca_contract import AccessMethod, SourceMetadata
 
 
@@ -50,6 +51,12 @@ class BaseMarineAdapter(ABC):
         else:
             self.verify_ssl = verify_ssl
 
+    def validate_target_url(self, url: str, *, check_dns: bool | None = None) -> str:
+        """Validate destination URL against SSRF rules before dispatch."""
+        if check_dns is None:
+            check_dns = os.getenv("ORCA_SSRF_CHECK_DNS", "0") in ("1", "true", "yes")
+        return validate_url(url, check_dns=check_dns)
+
     def create_client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             timeout=self.timeout_seconds,
@@ -57,3 +64,4 @@ class BaseMarineAdapter(ABC):
             follow_redirects=True,
             headers={"User-Agent": "ORCA-Marine-Intelligence/1.0 (Government-Research)"},
         )
+

@@ -27,6 +27,7 @@ class MarineAdvisoryModel(Base, TimestampMixin):
         DateTime(timezone=True), index=True, default=utc_now, nullable=False
     )
     sector: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    language: Mapped[str] = mapped_column(String(16), default="en", index=True, nullable=False)
     embedding = mapped_column(Vector(1536), nullable=True)
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 

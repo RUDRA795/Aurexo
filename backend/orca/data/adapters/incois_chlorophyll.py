@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import math
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
+import numpy as np
 import xarray as xr
 
 from orca.data.adapters.base import BaseMarineAdapter, SourceUnavailableError
@@ -57,6 +58,22 @@ class INCOISChlorophyllAdapter(BaseMarineAdapter):
         except Exception as exc:
             raise SourceUnavailableError(f"Failed to open INCOIS Chlorophyll dataset at {self.endpoint_url}: {exc}")
 
+        parsed_observed_at: datetime | None = observed_at
+        try:
+            if parsed_observed_at is None:
+                for time_var in ("time", "TAXIS", "TIME"):
+                    if time_var in ds.coords:
+                        t_val = ds.coords[time_var].values
+                        if hasattr(t_val, "__len__") and len(t_val) > 0:
+                            t_val = t_val[-1]
+                        if isinstance(t_val, np.datetime64):
+                            import pandas as pd
+                            ts = pd.to_datetime(t_val)
+                            parsed_observed_at = ts.to_pydatetime().replace(tzinfo=timezone.utc)
+                            break
+        except Exception:
+            pass
+
         try:
             # Check variable names ('chlor_a', 'CHL', 'chlorophyll')
             var_name = "chlor_a" if "chlor_a" in ds else "CHL" if "CHL" in ds else list(ds.data_vars.keys())[0]
@@ -83,7 +100,11 @@ class INCOISChlorophyllAdapter(BaseMarineAdapter):
             value=round(val, 3),
             unit="mg/m3",
             geometry=location,
-            observed_at=observed_at or utc_now(),
+            observed_at=parsed_observed_at,
+            retrieved_at=utc_now(),
             quality=DataQuality.GOOD,
             method="satellite_radiometry_point_interpolation",
+            derived=True,
+            estimated=False,
+            derivation_details="satellite_radiometry_point_interpolation",
         )

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -39,10 +39,16 @@ class PFZPoint(ContractBase):
     forecast_date: datetime | None = None
     valid_from: datetime | None = None
     valid_until: datetime | None = None
+    freshness_deadline: datetime | None = None
     wind_speed_ms: float | None = None
     wind_direction_deg: float | None = None
+    raw_geometry: dict[str, Any] | None = None
+    geometry_derivation: Literal["original_point", "line_midpoint_derived", "landing_center_bearing_derived", "unknown"] = "unknown"
+    source_valid_from: datetime | None = None
+    source_valid_until: datetime | None = None
+    validity_derivation: Literal["source_provided", "orca_freshness_policy", "unknown"] = "unknown"
 
-    @field_validator("forecast_date", "valid_from", "valid_until")
+    @field_validator("forecast_date", "valid_from", "valid_until", "freshness_deadline", "source_valid_from", "source_valid_until")
     @classmethod
     def aware(cls, v: datetime | None) -> datetime | None:
         return None if v is None else _require_aware(v)
@@ -54,6 +60,12 @@ class PFZPoint(ContractBase):
 
     def is_valid_at(self, t: datetime) -> bool:
         t = _require_aware(t)
+        if self.source_valid_from and t < self.source_valid_from:
+            return False
+        if self.source_valid_until and t > self.source_valid_until:
+            return False
+        if self.freshness_deadline and t > self.freshness_deadline:
+            return False
         if self.valid_from and t < self.valid_from:
             return False
         if self.valid_until and t > self.valid_until:

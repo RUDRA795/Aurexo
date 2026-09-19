@@ -46,7 +46,7 @@ class INCOISPFZWebGISAdapter(PFZDataSource, BaseMarineAdapter):
         endpoint_url: str | None = None,
         *,
         timeout_seconds: float = 12.0,
-        verify_ssl: bool = False,
+        verify_ssl: bool = True,
     ):
         BaseMarineAdapter.__init__(
             self,
@@ -184,6 +184,10 @@ class INCOISPFZWebGISAdapter(PFZDataSource, BaseMarineAdapter):
             forecast_date: datetime | None = None
             valid_from: datetime | None = None
             valid_until: datetime | None = None
+            freshness_deadline: datetime | None = None
+            source_valid_from: datetime | None = None
+            source_valid_until: datetime | None = None
+            validity_derivation = "unknown"
 
             if year_val is not None and julian_val is not None:
                 try:
@@ -191,20 +195,19 @@ class INCOISPFZWebGISAdapter(PFZDataSource, BaseMarineAdapter):
                     jd = int(julian_val)
                     base_date = datetime(y, 1, 1, tzinfo=timezone.utc)
                     forecast_date = base_date + timedelta(days=jd - 1)
+                    source_valid_from = forecast_date
+                    source_valid_until = None  # WFS layer provides no expiration/valid_until field
+                    freshness_deadline = forecast_date + timedelta(hours=36)
                     valid_from = forecast_date
-                    valid_until = forecast_date + timedelta(hours=36)
+                    valid_until = freshness_deadline
+                    validity_derivation = "orca_freshness_policy"
                 except (ValueError, TypeError):
                     pass
 
-            if forecast_date is None:
-                now = utc_now()
-                forecast_date = now
-                valid_from = now
-                valid_until = now + timedelta(hours=36)
-
             # Strict Stale Data Check
             if query and query.valid_at:
-                if valid_until and query.valid_at > valid_until:
+                check_deadline = freshness_deadline or valid_until
+                if check_deadline and query.valid_at > check_deadline:
                     # Stale observation relative to request validity time
                     continue
 
@@ -223,6 +226,12 @@ class INCOISPFZWebGISAdapter(PFZDataSource, BaseMarineAdapter):
                 forecast_date=forecast_date,
                 valid_from=valid_from,
                 valid_until=valid_until,
+                freshness_deadline=freshness_deadline,
+                raw_geometry=geometry_raw,
+                geometry_derivation="line_midpoint_derived",
+                source_valid_from=source_valid_from,
+                source_valid_until=source_valid_until,
+                validity_derivation=validity_derivation,
             )
             points.append(point)
 

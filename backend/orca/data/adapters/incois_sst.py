@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 import xarray as xr
@@ -58,6 +58,19 @@ class INCOISSSTAdapter(BaseMarineAdapter):
         except Exception as exc:
             raise SourceUnavailableError(f"Failed to open INCOIS SST dataset at {self.endpoint_url}: {exc}")
 
+        parsed_observed_at: datetime | None = observed_at
+        try:
+            if parsed_observed_at is None and "TAXIS" in ds.coords:
+                t_val = ds.coords["TAXIS"].values
+                if hasattr(t_val, "__len__") and len(t_val) > 0:
+                    t_val = t_val[-1]
+                if isinstance(t_val, np.datetime64):
+                    import pandas as pd
+                    ts = pd.to_datetime(t_val)
+                    parsed_observed_at = ts.to_pydatetime().replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+
         try:
             # Query point with nearest neighbor
             sst_data = ds["SST"].sel(
@@ -76,8 +89,15 @@ class INCOISSSTAdapter(BaseMarineAdapter):
         finally:
             ds.close()
 
+        # Handle INCOIS fill value (-999.9) as NaN
+        if val <= -900.0:
+            val = float("nan")
+
         # Handle land mask (NaN) by scanning adjacent ocean grid cells up to ~25km
         quality = DataQuality.GOOD
+        estimated = False
+        derivation_details = "opendap_nearest_grid_cell"
+
         if math.isnan(val):
             # Probe 0.15 deg (~16km) westward offshore into open water
             offshore_lon = location.lon - 0.15 if location.lon > 60.0 else location.lon + 0.15
@@ -88,8 +108,12 @@ class INCOISSSTAdapter(BaseMarineAdapter):
                     sst_data = sst_data.isel(DEPTH1_1=0)
                 if "TAXIS" in sst_data.dims:
                     sst_data = sst_data.isel(TAXIS=-1)
-                val = float(sst_data.values)
-                quality = DataQuality.DEGRADED
+                probe_val = float(sst_data.values)
+                if probe_val > -900.0 and not math.isnan(probe_val):
+                    val = probe_val
+                    quality = DataQuality.DEGRADED
+                    estimated = True
+                    derivation_details = "offshore_probe_due_to_land_mask"
             except Exception:
                 pass
             finally:
@@ -100,7 +124,7 @@ class INCOISSSTAdapter(BaseMarineAdapter):
                 f"SST data at location ({location.lat}, {location.lon}) is over land or unresolvable."
             )
 
-        # Convert Kelvin to Celsius if necessary
+        # Convert Kelvin to Celsius if necessary (INCOIS provides Deg. C.)
         temp_c = val - 273.15 if val > 200.0 else val
 
         return Evidence(
@@ -109,7 +133,11 @@ class INCOISSSTAdapter(BaseMarineAdapter):
             value=round(temp_c, 2),
             unit="degC",
             geometry=location,
-            observed_at=observed_at or utc_now(),
+            observed_at=parsed_observed_at,
+            retrieved_at=utc_now(),
             quality=quality,
             method="opendap_grid_point_interpolation",
+            derived=True,
+            estimated=estimated,
+            derivation_details=derivation_details,
         )

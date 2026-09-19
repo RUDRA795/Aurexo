@@ -130,6 +130,9 @@ class Evidence(ContractBase):
     retrieved_at: datetime = Field(default_factory=utc_now)
     method: str = "point_query"
     quality: DataQuality = DataQuality.GOOD
+    derived: bool = False
+    estimated: bool = False
+    derivation_details: str | None = None
 
     @field_validator("observed_at", "reference_time", "valid_from", "valid_until", "retrieved_at")
     @classmethod

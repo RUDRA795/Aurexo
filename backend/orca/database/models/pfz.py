@@ -43,10 +43,16 @@ class PFZPointModel(Base, TimestampMixin):
 
     def to_pydantic(self) -> PFZPoint:
         """Convert database record to typed contract PFZPoint."""
-        # Extract lat/lon from geom
-        shape = to_shape(self.geom)
+        # Extract lat/lon from geom (handles both WKBElement from DB and WKT string before flush)
+        if isinstance(self.geom, str):
+            import shapely.wkt
+            wkt_str = self.geom.split(";", 1)[1] if ";" in self.geom else self.geom
+            shape = shapely.wkt.loads(wkt_str)
+        else:
+            shape = to_shape(self.geom)
         lon = float(shape.x)
         lat = float(shape.y)
+        meta = self.raw_metadata or {}
         return PFZPoint(
             pfz_id=self.pfz_id,
             location=Geometry(lat=lat, lon=lon),
@@ -58,8 +64,14 @@ class PFZPointModel(Base, TimestampMixin):
             forecast_date=self.forecast_date,
             valid_from=self.valid_from,
             valid_until=self.valid_until,
+            freshness_deadline=meta.get("freshness_deadline"),
             wind_speed_ms=self.wind_speed_ms,
             wind_direction_deg=self.wind_direction_deg,
+            raw_geometry=meta.get("raw_geometry"),
+            geometry_derivation=meta.get("geometry_derivation", "unknown"),
+            source_valid_from=meta.get("source_valid_from"),
+            source_valid_until=meta.get("source_valid_until"),
+            validity_derivation=meta.get("validity_derivation", "unknown"),
         )
 
     @classmethod
@@ -77,6 +89,20 @@ class PFZPointModel(Base, TimestampMixin):
         from orca.schemas.orca_contract import utc_now
         now = utc_now()
         wkt_geom = f"SRID=4326;POINT({p.location.lon} {p.location.lat})"
+        combined_metadata = dict(raw_metadata or {})
+        if p.raw_geometry:
+            combined_metadata["raw_geometry"] = p.raw_geometry
+        if p.geometry_derivation:
+            combined_metadata["geometry_derivation"] = p.geometry_derivation
+        if p.source_valid_from:
+            combined_metadata["source_valid_from"] = p.source_valid_from.isoformat()
+        if p.source_valid_until:
+            combined_metadata["source_valid_until"] = p.source_valid_until.isoformat()
+        if p.freshness_deadline:
+            combined_metadata["freshness_deadline"] = p.freshness_deadline.isoformat()
+        if p.validity_derivation:
+            combined_metadata["validity_derivation"] = p.validity_derivation
+
         return cls(
             pfz_id=p.pfz_id,
             geom=wkt_geom,
@@ -92,7 +118,7 @@ class PFZPointModel(Base, TimestampMixin):
             wind_direction_deg=p.wind_direction_deg,
             source_id=source_id,
             access_tier=access_tier,
-            raw_metadata=raw_metadata,
+            raw_metadata=combined_metadata or None,
             created_at=created_at or now,
             updated_at=updated_at or now,
         )

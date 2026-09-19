@@ -41,10 +41,14 @@ class BaseMarineAdapter(ABC):
         self,
         *,
         timeout_seconds: float = 12.0,
-        verify_ssl: bool = False,
+        verify_ssl: bool = True,
     ):
         self.timeout_seconds = float(os.getenv("ORCA_HTTP_TIMEOUT", str(timeout_seconds)))
-        self.verify_ssl = os.getenv("ORCA_VERIFY_SSL", str(verify_ssl)).lower() in ("true", "1")
+        env_ssl = os.getenv("ORCA_VERIFY_SSL")
+        if env_ssl is not None:
+            self.verify_ssl = env_ssl.lower() in ("true", "1", "yes")
+        else:
+            self.verify_ssl = verify_ssl
 
     def create_client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(

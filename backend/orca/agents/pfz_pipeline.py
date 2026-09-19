@@ -597,11 +597,18 @@ async def run_pfz_query(
             },
         })
 
-    validity = nearest.valid_until.isoformat() if nearest.valid_until else "unspecified"
+    if nearest.source_valid_until:
+        validity_text = f"source valid until {nearest.source_valid_until.isoformat()}"
+    elif nearest.freshness_deadline or nearest.valid_until:
+        deadline = nearest.freshness_deadline or nearest.valid_until
+        validity_text = f"ORCA freshness deadline: {deadline.isoformat()} (source expiration unstated)"
+    else:
+        validity_text = "validity horizon unstated"
+
     answer = (
         f"The nearest verified Potential Fishing Zone is approximately {nearest_km:.1f} km away "
         f"on a bearing of {nearest_bearing:.0f}°, in the {nearest.sector} sector "
-        f"(valid until {validity})."
+        f"({validity_text})."
     )
 
     try:

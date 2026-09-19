@@ -47,7 +47,7 @@ class INCOISTextAdvisoryAdapter(PFZDataSource, BaseMarineAdapter):
         bulletins: list[dict[str, Any]] | None = None,
         *,
         timeout_seconds: float = 10.0,
-        verify_ssl: bool = False,
+        verify_ssl: bool = True,
     ):
         BaseMarineAdapter.__init__(
             self,
@@ -134,6 +134,7 @@ class INCOISTextAdvisoryAdapter(PFZDataSource, BaseMarineAdapter):
         center = str(r.get("landing_center", "")).strip().upper()
         lat = r.get("lat")
         lon = r.get("lon")
+        geom_derivation = "original_point"
 
         # Derive lat/lon from known landing center if offset given
         if (lat is None or lon is None) and center in LANDING_CENTER_COORDINATES:
@@ -145,14 +146,27 @@ class INCOISTextAdvisoryAdapter(PFZDataSource, BaseMarineAdapter):
             dlon = (dist_km / (111.0 * math.cos(math.radians(base_lat)))) * math.sin(math.radians(bearing_deg))
             lat = round(base_lat + dlat, 4)
             lon = round(base_lon + dlon, 4)
+            geom_derivation = "landing_center_bearing_derived"
 
         if lat is None or lon is None:
             return None
 
         pfz_id = str(r.get("pfz_id") or f"txt_{sector}_{center}_{len(r)}")
         now = utc_now()
-        valid_from = r.get("valid_from") or (now - timedelta(hours=1))
-        valid_until = r.get("valid_until") or (now + timedelta(hours=36))
+        source_valid_from = r.get("valid_from")
+        source_valid_until = r.get("valid_until")
+
+        if source_valid_from is not None:
+            valid_from = source_valid_from
+        else:
+            valid_from = now - timedelta(hours=1)
+
+        if source_valid_until is not None:
+            valid_until = source_valid_until
+            validity_derivation = "source_provided"
+        else:
+            valid_until = valid_from + timedelta(hours=36)
+            validity_derivation = "orca_freshness_policy"
 
         return PFZPoint(
             pfz_id=pfz_id,
@@ -167,6 +181,10 @@ class INCOISTextAdvisoryAdapter(PFZDataSource, BaseMarineAdapter):
             valid_until=valid_until,
             wind_speed_ms=r.get("wind_speed_ms"),
             wind_direction_deg=r.get("wind_direction_deg"),
+            geometry_derivation=geom_derivation,
+            source_valid_from=source_valid_from,
+            source_valid_until=source_valid_until,
+            validity_derivation=validity_derivation,
         )
 
     def parse_text_bulletin(self, text: str, query: PFZQuery | None = None) -> list[PFZPoint]:

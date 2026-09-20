@@ -15,7 +15,7 @@ async def test_pfz_repository_lifecycle_and_spatial_query():
 
     async with factory() as session:
         # Clean up any leftover test records
-        await session.execute(text("DELETE FROM pfz_points WHERE pfz_id LIKE 'repo_test_%'"))
+        await session.execute(text("DELETE FROM pfz_points WHERE pfz_id LIKE 'repo_test_%' OR pfz_id LIKE 'cache_fallback_%'"))
         await session.commit()
 
         repo = PFZRepository(session)
@@ -101,6 +101,7 @@ async def test_pfz_repository_lifecycle_and_spatial_query():
             valid_at=now,
             radius_km=200.0,
             sector="GOA",
+            limit=50,
         )
         found_ids = [r["point"].pfz_id for r in broad_results]
         assert "repo_test_goa_near" in found_ids

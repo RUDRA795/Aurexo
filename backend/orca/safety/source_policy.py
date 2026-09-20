@@ -146,8 +146,27 @@ class SourcePolicyRegistry:
         """Look up policy for a source identifier, or return UNTRUSTED fallback."""
         cleaned_id = source_id.lower().strip()
         for k, pol in self._policies.items():
-            if k in cleaned_id or cleaned_id in k:
+            if k == cleaned_id or k in cleaned_id or cleaned_id in k:
                 return pol
+
+        # Match certified operational authority prefixes
+        if "incois" in cleaned_id:
+            if "pfz" in cleaned_id:
+                return self._policies["incois_wfs"]
+            if "sst" in cleaned_id:
+                return self._policies["incois_osf_sst"]
+            if "chl" in cleaned_id:
+                return self._policies["incois_viirs_chl"]
+            if "advisory" in cleaned_id or "bulletin" in cleaned_id:
+                return self._policies["incois_text_bulletin"]
+            return self._policies["incois_osf_ocean_state"]
+        if "noaa" in cleaned_id:
+            return self._policies.get("noaa_weather", self._policies["noaa_nws_weather"])
+        if "copernicus" in cleaned_id:
+            return self._policies["copernicus_marine_service"]
+        if "imd" in cleaned_id:
+            return self._policies["imd_marine_warning"]
+
         return SourcePolicy(
             source_id=source_id,
             organization="Unknown / Third Party",

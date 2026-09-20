@@ -116,14 +116,26 @@ class SourceScore(ContractBase):
         ) >= 0.5
 
 
+class EvidenceType(str, Enum):
+    OBSERVATION = "OBSERVATION"
+    FORECAST = "FORECAST"
+    WARNING = "WARNING"
+    ADVISORY = "ADVISORY"
+    MODEL_DERIVED = "MODEL_DERIVED"
+    SIMULATED = "SIMULATED"
+
+
 class Evidence(ContractBase):
     id: str = Field(default_factory=lambda: f"ev_{uuid4().hex[:10]}")
     source: SourceMetadata
     variable: str
     value: float | int | str | dict[str, Any] | list[Any]
     unit: str | None = None
+    evidence_type: EvidenceType = EvidenceType.OBSERVATION
     geometry: Geometry | None = None
     observed_at: datetime | None = None
+    issued_at: datetime | None = None
+    forecast_valid_at: datetime | None = None
     reference_time: datetime | None = None
     valid_from: datetime | None = None
     valid_until: datetime | None = None
@@ -133,8 +145,13 @@ class Evidence(ContractBase):
     derived: bool = False
     estimated: bool = False
     derivation_details: str | None = None
+    raw_value: Any | None = None
+    raw_unit: str | None = None
+    normalized_value: Any | None = None
+    normalized_unit: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("observed_at", "reference_time", "valid_from", "valid_until", "retrieved_at")
+    @field_validator("observed_at", "issued_at", "forecast_valid_at", "reference_time", "valid_from", "valid_until", "retrieved_at")
     @classmethod
     def aware(cls, v: datetime | None) -> datetime | None:
         return None if v is None else _require_aware(v)
@@ -147,7 +164,15 @@ class Evidence(ContractBase):
 
     def is_fresh(self, now: datetime | None = None) -> bool:
         now = now or utc_now()
-        age_hours = (now - self.retrieved_at).total_seconds() / 3600
+        if self.evidence_type == EvidenceType.WARNING and self.valid_until:
+            return now <= self.valid_until
+        if self.evidence_type == EvidenceType.FORECAST:
+            if self.forecast_valid_at:
+                return now <= self.forecast_valid_at
+            if self.valid_until:
+                return now <= self.valid_until
+        reference_dt = self.observed_at or self.issued_at or self.retrieved_at
+        age_hours = (now - reference_dt).total_seconds() / 3600
         return age_hours <= self.source.freshness_policy_hours
 
     def is_valid_at(self, t: datetime) -> bool:

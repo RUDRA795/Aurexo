@@ -22,8 +22,10 @@ from orca.schemas.agent_runtime import (
     TaskPlan,
 )
 from orca.schemas.orca_contract import (
+    ConflictRecord,
     DataQuality,
     Evidence,
+    EvidenceType,
     FinalResponse,
     Geometry,
     MapOverlay,
@@ -34,6 +36,14 @@ from orca.schemas.orca_contract import (
 from orca.telemetry.tracer import trace_span
 from orca.tools.marine_tools import create_default_tool_registry
 from orca.tools.registry import ToolExecutionResult, ToolRegistry, ToolStatus
+from orca.verification.scientific import (
+    ArbitrationResult,
+    EvidenceVerificationRecord,
+    PipelineVerificationResult,
+    ScientificVerifier,
+    SourceArbitrator,
+    VerificationStatus,
+)
 
 # Deterministic Gazetteer for Indian Coastal Ports & Landing Centers
 COASTAL_GAZETTEER: Mapping[str, tuple[float, float, str]] = {
@@ -270,10 +280,14 @@ class OrcaAgentRuntime:
         tool_registry: ToolRegistry | None = None,
         source_registry: SourcePolicyRegistry | None = None,
         max_steps: int = 6,
+        verifier: ScientificVerifier | None = None,
+        arbitrator: SourceArbitrator | None = None,
     ) -> None:
         self.tools = tool_registry or create_default_tool_registry()
         self.sources = source_registry or SourcePolicyRegistry()
         self.max_steps = max_steps
+        self.verifier = verifier or ScientificVerifier(self.sources)
+        self.arbitrator = arbitrator or SourceArbitrator()
 
     def generate_plan(
         self,
@@ -513,6 +527,8 @@ class OrcaAgentRuntime:
         evidence_list: list[Evidence],
         sufficiency: SufficiencyEvaluationResult,
         session_id: str,
+        conflicts: list[ConflictRecord] | None = None,
+        agreements: list[dict[str, Any]] | None = None,
     ) -> tuple[FinalResponse, list[ClaimGrounding]]:
         """Synthesize response text strictly bound to concrete evidence records."""
         claims: list[ClaimGrounding] = []
@@ -665,6 +681,14 @@ class OrcaAgentRuntime:
             f"Data quality state: {sufficiency.evidence_quality.value}.",
             f"Region: {get_operational_region_policy().name}.",
         ]
+
+        # Cross-Source Conflict Disclosures
+        conflicts = conflicts or []
+        for conf in conflicts:
+            conflict_msg = f"DATA DIVERGENCE: For {conf.variable}, {conf.spread_summary}"
+            answer_parts.append(conflict_msg)
+            limitations.append(f"Cross-source divergence for {conf.variable}: {conf.spread_summary}")
+
         if sufficiency.missing_mandatory:
             missing_str = ", ".join(sufficiency.missing_mandatory)
             limit_msg = f"LIMITATION: Marine operational evidence ({missing_str}) could not be verified from official operational sources for this sector; fishing suitability cannot be certified without verified sea-state conditions."
@@ -679,6 +703,7 @@ class OrcaAgentRuntime:
             answer_text=final_text,
             confidence=sufficiency.answer_confidence,
             evidence_summary=evidence_list,
+            conflicts=conflicts,
             limitations=limitations,
             map_overlays=overlays,
         )
@@ -813,16 +838,37 @@ class OrcaAgentRuntime:
                 unreached.error = f"Exceeded max runtime steps limit ({self.max_steps})"
                 execution_traces.append({"step_id": unreached.step_id, "status": "limit_exceeded"})
 
-            # 4. Evaluate Evidence Sufficiency
-            sufficiency = self.evaluate_evidence_sufficiency(intent, all_evidence)
+            # 4. Scientific Verification (6 Dimensions)
+            verification = self.verifier.verify_pipeline(
+                all_evidence,
+                target_location=loc,
+                max_radius_km=300.0,
+                reference_time=utc_now(),
+            )
+            verified_evidence = verification.valid_evidences
 
-            # 5. Grounded Synthesis
+            # 5. Cross-Source Arbitration & Conflict Detection
+            arbitration = self.arbitrator.arbitrate(verified_evidence)
+            arbitrated_evidence = arbitration.arbitrated_evidences
+
+            # 6. Evaluate Evidence Sufficiency
+            sufficiency = self.evaluate_evidence_sufficiency(intent, arbitrated_evidence)
+            if arbitration.confidence_penalty > 0.0:
+                adjusted_conf = max(0.0, round(sufficiency.answer_confidence - arbitration.confidence_penalty, 2))
+                sufficiency.answer_confidence = adjusted_conf
+                sufficiency.notes.append(
+                    f"Confidence penalized by {arbitration.confidence_penalty:.2f} due to cross-source data conflicts."
+                )
+
+            # 7. Grounded Synthesis
             final_ans, claims = self.synthesize_grounded_response(
                 intent=intent,
                 query=cleaned_query,
-                evidence_list=all_evidence,
+                evidence_list=arbitrated_evidence,
                 sufficiency=sufficiency,
                 session_id=session_id,
+                conflicts=arbitration.conflicts,
+                agreements=arbitration.agreements,
             )
 
         total_duration = round((time.perf_counter() - start_time) * 1000.0, 2)
@@ -847,5 +893,10 @@ class OrcaAgentRuntime:
                 "sufficiency_notes": sufficiency.notes,
                 "missing_mandatory": sufficiency.missing_mandatory,
                 "data_quality": sufficiency.evidence_quality.value,
+                "verification": verification.summary,
+                "anomalies": [a.model_dump(mode="json") for a in verification.anomalies],
+                "rejected_evidence_count": len(verification.rejected_evidences),
+                "conflicts_count": len(arbitration.conflicts),
+                "agreements_count": len(arbitration.agreements),
             },
         )

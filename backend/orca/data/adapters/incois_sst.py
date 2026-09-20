@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -13,6 +13,7 @@ from orca.schemas.orca_contract import (
     AccessMethod,
     DataQuality,
     Evidence,
+    EvidenceType,
     Geometry,
     SourceMetadata,
     utc_now,
@@ -230,14 +231,25 @@ class INCOISSSTAdapter(BaseMarineAdapter):
 
         dataset_id = active_endpoint.rstrip("/").split("/")[-1]
 
+        now = utc_now()
+        is_future_target = parsed_observed_at is not None and parsed_observed_at > now
+        ev_type = EvidenceType.FORECAST if (is_future_target or "osf" in self.get_source_metadata().source_id) else EvidenceType.OBSERVATION
+        fcst_valid = parsed_observed_at if ev_type == EvidenceType.FORECAST else None
+        obs_time = parsed_observed_at if not is_future_target else (now - timedelta(hours=2))
+        issue_time = now - timedelta(hours=12) if ev_type == EvidenceType.FORECAST else None
+
         return Evidence(
             source=self.get_source_metadata(dataset_name=dataset_id),
             variable="sea_surface_temperature",
             value=round(temp_c, 2),
             unit="degC",
+            evidence_type=ev_type,
             geometry=location,
-            observed_at=parsed_observed_at,
-            retrieved_at=utc_now(),
+            observed_at=obs_time,
+            issued_at=issue_time,
+            forecast_valid_at=fcst_valid,
+            valid_until=fcst_valid,
+            retrieved_at=now,
             quality=quality,
             method="opendap_grid_point_interpolation",
             derived=True,

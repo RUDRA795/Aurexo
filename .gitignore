@@ -18,3 +18,4 @@ build/
 *.sqlite
 .DS_Store
 openapi.json
+*.tsbuildinfo

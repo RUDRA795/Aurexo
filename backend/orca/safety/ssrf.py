@@ -16,6 +16,7 @@ DEFAULT_ALLOWED_DOMAINS: tuple[str, ...] = (
     "copernicus.eu",
     "nasa.gov",
     "openstreetmap.org",
+    "bhashini.gov.in",
 )
 
 ALLOWED_SCHEMES: tuple[str, ...] = ("http", "https")
@@ -138,3 +139,7 @@ def validate_url(
             raise SSRFSecurityError(f"DNS resolution failed for '{hostname}': {exc}") from exc
 
     return url
+
+
+# Alias for explicit domain naming
+validate_url_for_ssrf = validate_url

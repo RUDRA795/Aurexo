@@ -23,6 +23,7 @@ from orca.schemas.orca_contract import (
     SourceMetadata,
     utc_now,
 )
+from orca.telemetry.tracer import trace_span
 
 DEFAULT_NOAA_BASE_URL = "https://api.weather.gov"
 

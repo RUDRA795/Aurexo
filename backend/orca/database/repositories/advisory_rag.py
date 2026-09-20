@@ -19,6 +19,7 @@ from orca.schemas.orca_contract import (
     SourceMetadata,
     utc_now,
 )
+from orca.telemetry.tracer import trace_span
 
 
 class EmbeddingProvider(ABC):
@@ -248,102 +249,103 @@ class AdvisoryRAGRepository:
         
         Guarantees deterministic tie-breaking by published_at DESC and primary key ID ASC.
         """
-        active_embedding = query_embedding
-        if active_embedding is None:
-            if not query_text:
-                raise ValueError("Either query_text or query_embedding must be supplied.")
-            active_embedding = await self.embedding_provider.embed_text(query_text)
+        with trace_span("database.advisory_rag.search", attributes={"sector": sector or "ALL", "language": language or "en", "limit": limit}):
+            active_embedding = query_embedding
+            if active_embedding is None:
+                if not query_text:
+                    raise ValueError("Either query_text or query_embedding must be supplied.")
+                active_embedding = await self.embedding_provider.embed_text(query_text)
 
-        self._validate_embedding(active_embedding)
+            self._validate_embedding(active_embedding)
 
-        distance_col = MarineAdvisoryModel.embedding.cosine_distance(active_embedding).label("distance")
+            distance_col = MarineAdvisoryModel.embedding.cosine_distance(active_embedding).label("distance")
 
-        stmt = select(MarineAdvisoryModel, distance_col).where(MarineAdvisoryModel.embedding.is_not(None))
+            stmt = select(MarineAdvisoryModel, distance_col).where(MarineAdvisoryModel.embedding.is_not(None))
 
-        # Sector filter
-        if sector:
-            stmt = stmt.where(func.upper(MarineAdvisoryModel.sector) == sector.strip().upper())
+            # Sector filter
+            if sector:
+                stmt = stmt.where(func.upper(MarineAdvisoryModel.sector) == sector.strip().upper())
 
-        # Multilingual / language filter
-        if language:
-            stmt = stmt.where(func.lower(MarineAdvisoryModel.language) == language.strip().lower())
+            # Multilingual / language filter
+            if language:
+                stmt = stmt.where(func.lower(MarineAdvisoryModel.language) == language.strip().lower())
 
-        # Freshness / temporal filter
-        if min_published_at:
-            if min_published_at.tzinfo is None:
-                min_published_at = min_published_at.replace(tzinfo=timezone.utc)
-            stmt = stmt.where(MarineAdvisoryModel.published_at >= min_published_at)
+            # Freshness / temporal filter
+            if min_published_at:
+                if min_published_at.tzinfo is None:
+                    min_published_at = min_published_at.replace(tzinfo=timezone.utc)
+                stmt = stmt.where(MarineAdvisoryModel.published_at >= min_published_at)
 
-        # Distance threshold filter
-        if max_cosine_distance is not None:
-            stmt = stmt.where(distance_col <= max_cosine_distance)
+            # Distance threshold filter
+            if max_cosine_distance is not None:
+                stmt = stmt.where(distance_col <= max_cosine_distance)
 
-        # Deterministic tie-breaking order
-        stmt = stmt.order_by(
-            distance_col.asc(),
-            MarineAdvisoryModel.published_at.desc(),
-            MarineAdvisoryModel.id.asc(),
-        ).limit(limit)
+            # Deterministic tie-breaking order
+            stmt = stmt.order_by(
+                distance_col.asc(),
+                MarineAdvisoryModel.published_at.desc(),
+                MarineAdvisoryModel.id.asc(),
+            ).limit(limit)
 
-        result = await self.session.execute(stmt)
-        rows = result.all()
+            result = await self.session.execute(stmt)
+            rows = result.all()
 
-        search_results: list[AdvisorySearchResult] = []
-        for model, dist_val in rows:
-            dist = float(dist_val)
-            similarity = round(max(0.0, 1.0 - dist), 4)
+            search_results: list[AdvisorySearchResult] = []
+            for model, dist_val in rows:
+                dist = float(dist_val)
+                similarity = round(max(0.0, 1.0 - dist), 4)
 
-            doc = AdvisoryDocument(
-                id=model.id,
-                title=model.title,
-                content=model.content,
-                source_id=model.source_id,
-                published_at=model.published_at,
-                sector=model.sector,
-                language=model.language,
-                embedding=list(model.embedding) if model.embedding is not None else None,
-                metadata=model.metadata_json or {},
-            )
-
-            evidence = Evidence(
-                source=SourceMetadata(
+                doc = AdvisoryDocument(
+                    id=model.id,
+                    title=model.title,
+                    content=model.content,
                     source_id=model.source_id,
-                    organization="INCOIS / Regional Fisheries Department",
-                    dataset=f"Advisory Bulletin ({model.title})",
-                    domain=["fisheries_advisory", "marine_context"],
-                    coverage=model.sector.lower() if model.sector else "indian_ocean",
-                    authority="official",
-                    access=AccessMethod.API,
-                    freshness_policy_hours=48.0,
-                ),
-                variable="advisory_context",
-                value={
-                    "advisory_id": str(model.id),
-                    "title": model.title,
-                    "content": model.content,
-                    "sector": model.sector,
-                    "language": model.language,
-                    "similarity": similarity,
-                },
-                observed_at=model.published_at,
-                retrieved_at=utc_now(),
-                quality=DataQuality.GOOD,
-                method="pgvector_cosine_similarity",
-                derived=False,
-                estimated=False,
-                derivation_details=f"pgvector_rag_cosine_distance_{dist:.4f}",
-            )
-
-            search_results.append(
-                AdvisorySearchResult(
-                    document=doc,
-                    similarity_score=similarity,
-                    cosine_distance=dist,
-                    evidence=evidence,
+                    published_at=model.published_at,
+                    sector=model.sector,
+                    language=model.language,
+                    embedding=list(model.embedding) if model.embedding is not None else None,
+                    metadata=model.metadata_json or {},
                 )
-            )
 
-        return search_results
+                evidence = Evidence(
+                    source=SourceMetadata(
+                        source_id=model.source_id,
+                        organization="INCOIS / Regional Fisheries Department",
+                        dataset=f"Advisory Bulletin ({model.title})",
+                        domain=["fisheries_advisory", "marine_context"],
+                        coverage=model.sector.lower() if model.sector else "indian_ocean",
+                        authority="official",
+                        access=AccessMethod.API,
+                        freshness_policy_hours=48.0,
+                    ),
+                    variable="advisory_context",
+                    value={
+                        "advisory_id": str(model.id),
+                        "title": model.title,
+                        "content": model.content,
+                        "sector": model.sector,
+                        "language": model.language,
+                        "similarity": similarity,
+                    },
+                    observed_at=model.published_at,
+                    retrieved_at=utc_now(),
+                    quality=DataQuality.GOOD,
+                    method="pgvector_cosine_similarity",
+                    derived=False,
+                    estimated=False,
+                    derivation_details=f"pgvector_rag_cosine_distance_{dist:.4f}",
+                )
+
+                search_results.append(
+                    AdvisorySearchResult(
+                        document=doc,
+                        similarity_score=similarity,
+                        cosine_distance=dist,
+                        evidence=evidence,
+                    )
+                )
+
+            return search_results
 
     async def get_by_id(self, advisory_id: uuid.UUID) -> AdvisoryDocument | None:
         """Fetch an advisory by its unique UUID."""

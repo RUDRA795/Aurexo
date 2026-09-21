@@ -2,12 +2,24 @@ import React, { useEffect, useRef, useState } from 'react'
 import { GerstnerOcean, OceanQualityTier } from './ocean/GerstnerOcean'
 import { MapLibreView } from './MapLibreView'
 import { FinalResponse, MapOverlay } from './contracts'
+import { useAgentStream } from './useAgentStream'
 
 export function OrcaCommandCenter() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const oceanRef = useRef<GerstnerOcean | null>(null)
   const [qualityTier, setQualityTier] = useState<OceanQualityTier>('high')
   const [activePFZId, setActivePFZId] = useState<string | null>(null)
+
+  const {
+    connectionStatus,
+    runId,
+    steps,
+    evidence: streamEvidence,
+    finalResponse,
+    mapOverlays,
+    startStream,
+    cancelStream,
+  } = useAgentStream()
 
   // Contract-driven response state (populated from backend)
   const [response, setResponse] = useState<FinalResponse | null>({
@@ -113,10 +125,14 @@ export function OrcaCommandCenter() {
     oceanRef.current?.setTier(tier)
   }
 
+  // Contract-driven response state
+  const displayResponse = finalResponse || response
+  const displayOverlays = mapOverlays.length > 0 ? mapOverlays : response?.map_overlays
+
   // Extract environmental metrics
-  const sstRecord = response?.evidence_summary.find((e) => e.variable === 'sea_surface_temperature')
-  const chlRecord = response?.evidence_summary.find((e) => e.variable === 'chlorophyll_a')
-  const weatherRecord = response?.evidence_summary.find((e) => e.variable === 'marine_weather_forecast')
+  const sstRecord = displayResponse?.evidence_summary.find((e) => e.variable === 'sea_surface_temperature')
+  const chlRecord = displayResponse?.evidence_summary.find((e) => e.variable === 'chlorophyll_a')
+  const weatherRecord = displayResponse?.evidence_summary.find((e) => e.variable === 'marine_weather_forecast')
 
   return (
     <main className="orca-shell">
@@ -166,8 +182,37 @@ export function OrcaCommandCenter() {
             <p>LangGraph multi-agent orchestration, deterministic geospatial verification, and dynamic provenance.</p>
           </div>
 
-          <div className="query-box">
-            <b>Query:</b> Where is the nearest verified PFZ and environmental state for Goa waters?
+          {/* Query & Trigger Controls */}
+          <div className="query-box" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <b>Query:</b>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  className="tier-btn"
+                  style={{ background: connectionStatus === 'streaming' ? '#f43f5e' : '#0284c7', color: '#fff' }}
+                  onClick={() => {
+                    if (connectionStatus === 'streaming') {
+                      cancelStream()
+                    } else {
+                      startStream('Analyze current marine conditions near Mumbai with fishing suitability and weather.', {
+                        sector: 'MAHARASHTRA',
+                        coordinates: { lat: 18.92, lon: 72.83 },
+                      })
+                    }
+                  }}
+                >
+                  {connectionStatus === 'streaming' ? 'Cancel Stream' : 'Run Live Stream'}
+                </button>
+              </div>
+            </div>
+            <span style={{ fontSize: '12px', color: '#cbd5e1' }}>
+              Analyze current marine conditions near Mumbai with fishing suitability and weather.
+            </span>
+            {runId && (
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                Run ID: {runId} | Status: <b style={{ color: connectionStatus === 'streaming' ? '#38bdf8' : '#4ade80' }}>{connectionStatus.toUpperCase()}</b>
+              </span>
+            )}
           </div>
 
           {/* Environmental Badges */}
@@ -195,29 +240,30 @@ export function OrcaCommandCenter() {
           {/* Synthesized Answer */}
           <div style={{ fontSize: '13px', lineHeight: 1.6, background: 'rgba(0,0,0,0.28)', padding: '14px', borderRadius: '12px' }}>
             <div style={{ color: '#38bdf8', fontWeight: 600, marginBottom: '6px' }}>
-              Synthesized Advisory ({response?.response_type.toUpperCase()})
+              Synthesized Advisory ({displayResponse?.response_type?.toUpperCase() || 'FACTUAL'})
             </div>
-            {response?.answer_text}
+            {displayResponse?.answer_text}
           </div>
 
-          {/* Provenance and Pipeline Trace */}
+          {/* Real-time Observable Pipeline Execution Steps */}
           <div className="trace">
-            <div className="trace-row">
-              <b>SUPERVISOR NODE</b>
-              <span>intent: pfz_environmental</span>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: '#38bdf8', marginBottom: '4px', letterSpacing: '0.05em' }}>
+              {connectionStatus === 'streaming' ? '◉ ORCA ACTIVE STREAM' : '✓ EXECUTION PIPELINE'}
             </div>
-            <div className="trace-row">
-              <b>PFZ AGENT NODE</b>
-              <span>tier: webgis_layer (WFS verified)</span>
-            </div>
-            <div className="trace-row">
-              <b>ENVIRONMENT NODE</b>
-              <span>SST + CHL parallel retrieval</span>
-            </div>
-            <div className="trace-row">
-              <b>SAFETY VALIDATION</b>
-              <span>code guards: PASSED</span>
-            </div>
+            {steps.map((s) => (
+              <div key={s.id} className="trace-row" style={{ opacity: s.status === 'pending' ? 0.45 : 1 }}>
+                <span>
+                  {s.status === 'completed' && <span style={{ color: '#4ade80', marginRight: '6px' }}>✓</span>}
+                  {s.status === 'active' && <span style={{ color: '#38bdf8', marginRight: '6px' }}>◉</span>}
+                  {s.status === 'pending' && <span style={{ color: '#94a3b8', marginRight: '6px' }}>○</span>}
+                  {s.status === 'failed' && <span style={{ color: '#f43f5e', marginRight: '6px' }}>✗</span>}
+                  <b>{s.name}</b>
+                </span>
+                <span style={{ fontSize: '11px', color: s.status === 'active' ? '#38bdf8' : '#94a3b8' }}>
+                  {s.durationMs != null ? `${s.durationMs}ms` : s.agent || s.tool || s.status}
+                </span>
+              </div>
+            ))}
           </div>
         </section>
 
@@ -231,7 +277,7 @@ export function OrcaCommandCenter() {
           </div>
           <div className="map-container-box">
             <MapLibreView
-              overlays={response?.map_overlays}
+              overlays={displayOverlays}
               center={[73.40, 15.45]}
               zoom={7.5}
               onSelectPFZ={(id) => setActivePFZId(id)}

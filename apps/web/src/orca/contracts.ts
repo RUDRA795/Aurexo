@@ -35,7 +35,7 @@ export interface EvidenceRecord {
 
 export interface FinalResponse {
   session_id: string;
-  response_type: "factual" | "refusal" | "error" | "unavailable";
+  response_type: "factual" | "advisory" | "refusal" | "error" | "unavailable";
   answer_text: string;
   confidence: number;
   evidence_summary: EvidenceRecord[];

@@ -7,10 +7,12 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from orca.agents.pfz_pipeline import MockPFZDataSource, run_pfz_query
+from orca.api.streaming import router as streaming_router
 from orca.schemas.orca_contract import Geometry
 
 
 app = FastAPI(title="ORCA Marine Intelligence API", version="0.1.0")
+app.include_router(streaming_router)
 
 
 class PFZRequest(BaseModel):

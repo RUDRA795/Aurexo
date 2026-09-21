@@ -160,6 +160,11 @@ def evidence_matches_requirement(ev: Evidence, req: EvidenceRequirement) -> bool
     var = (ev.variable or "").lower().strip()
     target = req.variable.lower().strip()
 
+    # Non-negotiable integrity rule: Advisory evidence is strictly contextual
+    # and can NEVER substitute for mandatory physical environmental requirements
+    if getattr(ev, "evidence_type", None) == EvidenceType.ADVISORY or var == "advisory_context":
+        return target == "advisory_context"
+
     if target == "marine_operational_conditions":
         operational_vars = (
             "marine_weather_forecast",
@@ -667,11 +672,13 @@ class OrcaAgentRuntime:
 
         # 10. Advisory Context Grounding (Contextual only, does not fabricate observations)
         adv_evs = [e for e in evidence_list if "advisory" in (e.variable or "")]
-        if adv_evs and not answer_parts:
+        if adv_evs:
             top_adv = adv_evs[0]
-            title = top_adv.value.get("title", "Advisory Bulletin")
-            content = top_adv.value.get("content", "")
-            claim_txt = f"Official Marine Advisory ({title}): {content}"
+            val = top_adv.value if isinstance(top_adv.value, dict) else {}
+            title = val.get("title", "Advisory Bulletin")
+            content = val.get("content", "")
+            prefix = "Official Marine Advisory" if not answer_parts else "Contextual Advisory"
+            claim_txt = f"{prefix} ({title}): {content}"
             answer_parts.append(claim_txt)
             claims.append(ClaimGrounding(claim_text=claim_txt, supporting_evidence_ids=[top_adv.source.source_id]))
 

@@ -462,12 +462,20 @@ class AdvisoryRAGTool(BaseMarineTool):
                 limit=params.limit,
             )
             evidences = [r.evidence for r in search_results]
+            method_str = "hybrid_rrf_pgvector" if hasattr(self.repository, "search_chunks") else "pgvector_cosine_similarity"
             return ToolExecutionResult(
                 tool_name=self.name,
                 status=ToolStatus.SUCCESS if evidences else ToolStatus.DEGRADED,
                 evidence=evidences,
-                provenance={"method": "pgvector_cosine_similarity"},
-                metadata={"retrieved_count": len(evidences)},
+                provenance={"method": method_str},
+                metadata={
+                    "retrieved_count": len(evidences),
+                    "advisory_ids": [
+                        e.value.get("advisory_id")
+                        for e in evidences
+                        if isinstance(e.value, dict) and "advisory_id" in e.value
+                    ],
+                },
             )
         except Exception as exc:
             return ToolExecutionResult(

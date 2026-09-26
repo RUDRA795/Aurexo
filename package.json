@@ -1,0 +1,29 @@
+{
+  "name": "orca",
+  "version": "1.0.0",
+  "description": "ORCA — Marine EcOsystem Reasoning with Collaborative Agents (ISRO PS 26176)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:frontend": "npm --prefix uiux run dev",
+    "build": "npm --prefix uiux run build",
+    "lint": "npm --prefix uiux run lint",
+    "test": "node scripts/test-all.mjs",
+    "test:frontend": "npm --prefix uiux run lint"
+  },
+  "keywords": [
+    "orca",
+    "marine-intelligence",
+    "oceanography",
+    "isro",
+    "gemini",
+    "langgraph",
+    "postgis",
+    "webgl",
+    "vite",
+    "react"
+  ],
+  "author": "ORCA Team",
+  "license": "UNLICENSED"
+}

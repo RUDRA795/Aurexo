@@ -105,12 +105,23 @@ class OrcaEventBroker:
 
         return committed_event
 
+    def create_subscriber_queue(self) -> asyncio.Queue[AgentEvent | None]:
+        """Synchronously create and register a subscriber queue.
+
+        Guarantees that events published after this call are enqueued immediately,
+        preventing any race condition before an async loop begins.
+        """
+        queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue(maxsize=500)
+        self._subscribers.add(queue)
+        return queue
+
+    def remove_subscriber_queue(self, queue: asyncio.Queue[AgentEvent | None]) -> None:
+        """Unregister a subscriber queue."""
+        self._subscribers.discard(queue)
+
     async def subscribe(self) -> AsyncGenerator[AgentEvent, None]:
         """Subscribe to live committed events published by this broker."""
-        queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue(maxsize=500)
-        async with self._lock:
-            self._subscribers.add(queue)
-
+        queue = self.create_subscriber_queue()
         try:
             while True:
                 event = await queue.get()
@@ -118,8 +129,7 @@ class OrcaEventBroker:
                     break
                 yield event
         finally:
-            async with self._lock:
-                self._subscribers.discard(queue)
+            self.remove_subscriber_queue(queue)
 
     async def close(self) -> None:
         """Close the broker and notify active subscribers of completion."""
@@ -180,6 +190,8 @@ class AgentRunManager:
     def get_instance(cls, repository: EventJournalRepository | None = None) -> AgentRunManager:
         if cls._instance is None:
             cls._instance = AgentRunManager(repository)
+        elif repository is not None:
+            cls._instance.repository = repository
         return cls._instance
 
     async def get_or_create_broker(

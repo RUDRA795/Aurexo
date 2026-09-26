@@ -80,7 +80,7 @@ INDIAN_OCEAN_REGIONAL_QC_BOUNDS: Mapping[str, tuple[float, float]] = {
 VARIABLE_CONFLICT_THRESHOLDS: Mapping[str, dict[str, float]] = {
     "sea_surface_temperature": {"tolerance": 1.0, "conflict": 1.5},         # in °C
     "chlorophyll_a": {"rel_tolerance": 0.35, "rel_conflict": 0.50, "abs_min": 0.1},
-    "significant_wave_height": {"tolerance": 0.5, "conflict": 1.0},        # in metres
+    "significant_wave_height": {"tolerance": 0.3, "conflict": 0.5},        # in metres
     "wave_period": {"tolerance": 2.0, "conflict": 4.0},                     # in seconds
     "wind_speed": {"tolerance": 5.0, "conflict": 10.0},                     # in knots
     "surface_current": {"tolerance": 0.2, "conflict": 0.5},                 # in m/s
@@ -676,15 +676,14 @@ class SourceArbitrator:
         notes: list[str] = []
         confidence_penalty = 0.0
 
-        # Group by (normalized_variable, evidence_type)
-        grouped: dict[tuple[str, EvidenceType], list[Evidence]] = {}
+        # Group by variable
+        grouped: dict[str, list[Evidence]] = {}
         for ev in evidences:
-            key = (ev.variable, ev.evidence_type)
-            grouped.setdefault(key, []).append(ev)
+            grouped.setdefault(ev.variable, []).append(ev)
 
         arbitrated_evidences: list[Evidence] = list(evidences)
 
-        for (var, ev_type), items in grouped.items():
+        for var, items in grouped.items():
             if len(items) < 2:
                 continue
 
@@ -709,15 +708,19 @@ class SourceArbitrator:
                     is_conflict, is_agreement, summary = self._evaluate_discrepancy(var, val1, val2, ev1, ev2)
 
                     if is_conflict:
+                        pref_source = self._determine_preferred_source(ev1, ev2)
+                        pref_org = pref_source.source.organization if pref_source else "Authoritative Source"
+                        pref_id = pref_source.source.source_id if pref_source else "INCOIS"
                         conf_rec = ConflictRecord(
                             variable=var,
                             values=[ev1, ev2],
                             spread_summary=summary,
                             resolution="report_spread",
+                            preferred_source=pref_id,
                         )
                         conflicts.append(conf_rec)
                         confidence_penalty += 0.15
-                        notes.append(f"Conflict detected for {var}: {summary}")
+                        notes.append(f"Conflict detected for {var}: {summary}. Resolution: report_spread, prefer {pref_org} ({pref_id})")
                     elif is_agreement:
                         pref_source = self._determine_preferred_source(ev1, ev2)
                         agreements.append(

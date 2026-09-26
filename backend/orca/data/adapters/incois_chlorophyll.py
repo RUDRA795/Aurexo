@@ -6,7 +6,10 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import xarray as xr
+try:
+    import xarray as xr
+except ImportError:
+    xr = None
 
 from orca.data.adapters.base import BaseMarineAdapter, SourceUnavailableError
 from orca.schemas.orca_contract import (
@@ -200,17 +203,32 @@ class INCOISChlorophyllAdapter(BaseMarineAdapter):
 
         dataset_id = active_endpoint.rstrip("/").split("/")[-1]
 
+        now = utc_now()
+        obs_dt = parsed_observed_at
+
         return Evidence(
             source=self.get_source_metadata(dataset_name=dataset_id),
             variable="chlorophyll_a",
             value=round(val, 3),
             unit="mg/m3",
             geometry=location,
-            observed_at=parsed_observed_at,
-            retrieved_at=utc_now(),
+            observed_at=obs_dt,
+            retrieved_at=now,
             quality=quality,
             method="satellite_radiometry_point_interpolation",
             derived=True,
             estimated=estimated,
             derivation_details=derivation_details,
+            metadata={
+                "source": "INCOIS",
+                "observed_at": obs_dt.isoformat() if obs_dt else None,
+                "retrieved_at": now.isoformat(),
+                "lat": location.lat,
+                "lon": location.lon,
+                "variable": "chlorophyll_a",
+                "value": round(val, 3),
+                "unit": "mg/m3",
+                "quality": quality.value,
+                "source_url": "https://incois.gov.in/portal/chlorophyll.jsp",
+            },
         )

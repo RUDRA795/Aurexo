@@ -860,6 +860,21 @@ class OrcaAgentRuntime:
 
             # 6. Evaluate Evidence Sufficiency
             sufficiency = self.evaluate_evidence_sufficiency(intent, arbitrated_evidence)
+            if loc is None and intent in (
+                IntentEnum.FISHING_SUITABILITY,
+                IntentEnum.PFZ_SEEKING,
+                IntentEnum.WEATHER_FORECAST,
+                IntentEnum.OCEAN_METRICS,
+                IntentEnum.SPATIAL_QUERY,
+            ):
+                sufficiency.is_sufficient = False
+                if "geographic_location" not in sufficiency.missing_mandatory:
+                    sufficiency.missing_mandatory.append("geographic_location")
+                sufficiency.notes.append(
+                    "Query does not specify a recognized Indian coastal harbor, landing center, or valid offshore coordinates."
+                )
+                sufficiency.answer_confidence = min(sufficiency.answer_confidence, 0.40)
+
             if arbitration.confidence_penalty > 0.0:
                 adjusted_conf = max(0.0, round(sufficiency.answer_confidence - arbitration.confidence_penalty, 2))
                 sufficiency.answer_confidence = adjusted_conf

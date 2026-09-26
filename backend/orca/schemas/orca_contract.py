@@ -183,6 +183,121 @@ class Evidence(ContractBase):
             return False
         return True
 
+    def compute_freshness(self, now: datetime | None = None) -> FreshnessClass:
+        is_fc = self.evidence_type == EvidenceType.FORECAST
+        reference_dt = self.observed_at or self.issued_at or self.retrieved_at
+        return compute_freshness(reference_dt, now=now, is_forecast=is_fc)
+
+    def to_evidence_item(self, now: datetime | None = None) -> EvidenceItem:
+        freshness = self.compute_freshness(now)
+        src_id = (self.source.source_id or "").lower()
+        if "incois" in src_id or "imd" in src_id:
+            src_type = "government"
+        elif "copernicus" in src_id or "modis" in src_id or "viirs" in src_id or "sst" in src_id:
+            src_type = "satellite"
+        elif "ndbc" in src_id or "buoy" in src_id:
+            src_type = "buoy"
+        elif "meteo" in src_id or "model" in src_id or "gfs" in src_id:
+            src_type = "model"
+        elif "web" in src_id or "search" in src_id:
+            src_type = "web"
+        elif "paper" in src_id or "study" in src_id:
+            src_type = "scientific_paper"
+        else:
+            src_type = "deterministic"
+
+        url = self.metadata.get("source_url") or self.metadata.get("url")
+        if not url:
+            if "incois" in src_id:
+                url = "https://incois.gov.in/portal/pfz.jsp"
+            elif "copernicus" in src_id:
+                url = "https://marine.copernicus.eu"
+            elif "open_meteo" in src_id:
+                url = "https://open-meteo.com/en/docs/marine-weather-api"
+            elif "ndbc" in src_id:
+                url = "https://www.ndbc.noaa.gov"
+
+        title = self.metadata.get("title") or f"{self.source.organization} - {self.variable.replace('_', ' ').title()}"
+
+        return EvidenceItem(
+            id=self.id,
+            source=self.source.organization or self.source.source_id,
+            source_type=src_type,
+            title=title,
+            url=url,
+            provider=self.source.source_id,
+            retrieved_at=self.retrieved_at,
+            observed_at=self.observed_at,
+            valid_until=self.valid_until,
+            variable=self.variable,
+            value=self.value,
+            unit=self.unit,
+            location=self.geometry,
+            quality=self.quality,
+            confidence=0.95 if self.quality == DataQuality.GOOD else 0.70,
+            method=self.method,
+            citation=self.metadata.get("citation"),
+            freshness=freshness,
+            metadata=self.metadata,
+        )
+
+
+class FreshnessClass(str, Enum):
+    LIVE = "LIVE"                  # < 15 minutes
+    RECENT = "RECENT"              # 15 minutes – 6 hours
+    STALE = "STALE"                # 6 – 24 hours
+    OLD = "OLD"                    # > 24 hours
+    FORECAST = "FORECAST"
+    HISTORICAL = "HISTORICAL"
+
+
+def compute_freshness(observed_at: datetime | None, now: datetime | None = None, is_forecast: bool = False) -> FreshnessClass:
+    """Compute empirical freshness classification for oceanographic observations."""
+    if is_forecast:
+        return FreshnessClass.FORECAST
+    now = now or utc_now()
+    if observed_at is None:
+        return FreshnessClass.RECENT
+    age_seconds = max(0.0, (now - observed_at).total_seconds())
+    if age_seconds < 900:  # < 15 min
+        return FreshnessClass.LIVE
+    elif age_seconds < 21600:  # < 6 hours
+        return FreshnessClass.RECENT
+    elif age_seconds < 86400:  # < 24 hours
+        return FreshnessClass.STALE
+    return FreshnessClass.OLD
+
+
+class EvidenceItem(ContractBase):
+    id: str = Field(default_factory=lambda: f"ev_{uuid4().hex[:10]}")
+    source: str
+    source_type: Literal[
+        "web",
+        "satellite",
+        "model",
+        "buoy",
+        "government",
+        "scientific_paper",
+        "deterministic",
+    ] = "deterministic"
+    title: str = "Marine Observation"
+    url: str | None = None
+    provider: str = "ORCA"
+    retrieved_at: datetime = Field(default_factory=utc_now)
+    observed_at: datetime | None = None
+    valid_until: datetime | None = None
+    variable: str = ""
+    value: Any = None
+    unit: str | None = None
+    location: Geometry | None = None
+    quality: DataQuality = DataQuality.GOOD
+    confidence: float = Field(default=0.85, ge=0.0, le=1.0)
+    method: str = "point_query"
+    citation: str | None = None
+    freshness: FreshnessClass = FreshnessClass.RECENT
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 
 class ToolName(str, Enum):
     GET_SST = "get_sst"
@@ -318,7 +433,8 @@ class ConflictRecord(ContractBase):
     variable: str
     values: list[Evidence]
     spread_summary: str
-    resolution: Literal["report_spread", "prefer_observation", "prefer_freshest"] = "report_spread"
+    resolution: str = "report_spread"
+    preferred_source: str | None = None
 
 
 class FusionResult(ContractBase):

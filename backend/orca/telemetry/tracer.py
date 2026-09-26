@@ -6,11 +6,55 @@ import functools
 import re
 from typing import Any, Callable, Generator, List, Sequence
 
-from opentelemetry import trace
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExportResult, SpanExporter
-from opentelemetry.trace import StatusCode, Tracer
+try:
+    from opentelemetry import trace
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExportResult, SpanExporter
+    from opentelemetry.trace import StatusCode, Tracer
+    HAVE_OPENTELEMETRY = True
+except ImportError:
+    HAVE_OPENTELEMETRY = False
+    class StatusCode:
+        OK = "OK"
+        ERROR = "ERROR"
+        UNSET = "UNSET"
+    class ReadableSpan:
+        pass
+    class SpanExporter:
+        pass
+    class SpanExportResult:
+        SUCCESS = 0
+        FAILURE = 1
+    class TracerProvider:
+        def __init__(self, *args, **kwargs): pass
+        def add_span_processor(self, *args, **kwargs): pass
+    class Resource:
+        @classmethod
+        def create(cls, *args, **kwargs): return None
+    class SimpleSpanProcessor:
+        def __init__(self, *args, **kwargs): pass
+    class DummySpan:
+        def __init__(self, name="dummy", attributes=None):
+            self.name = name
+            self.attributes = attributes or {}
+            self.status = StatusCode.OK
+        def record_exception(self, exc): pass
+        def set_status(self, status, description=None): pass
+        def set_attribute(self, key, value): self.attributes[key] = value
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+    class Tracer:
+        @contextmanager
+        def start_as_current_span(self, name, attributes=None):
+            yield DummySpan(name, attributes)
+    class _TraceModule:
+        Span = DummySpan
+        @staticmethod
+        def get_tracer(name="orca"): return Tracer()
+        @staticmethod
+        def set_tracer_provider(p): pass
+    trace = _TraceModule()
 
 
 SENSITIVE_KEY_SUBSTRINGS = (

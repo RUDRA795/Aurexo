@@ -6,7 +6,10 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import xarray as xr
+try:
+    import xarray as xr
+except ImportError:
+    xr = None
 
 from orca.data.adapters.base import BaseMarineAdapter, SourceUnavailableError
 from orca.schemas.orca_contract import (
@@ -255,4 +258,16 @@ class INCOISSSTAdapter(BaseMarineAdapter):
             derived=True,
             estimated=estimated,
             derivation_details=derivation_details,
+            metadata={
+                "source": "INCOIS",
+                "observed_at": (obs_time or now).isoformat(),
+                "retrieved_at": now.isoformat(),
+                "lat": location.lat,
+                "lon": location.lon,
+                "variable": "sea_surface_temperature",
+                "value": round(temp_c, 2),
+                "unit": "degC",
+                "quality": quality.value,
+                "source_url": "https://incois.gov.in/portal/sst.jsp",
+            },
         )

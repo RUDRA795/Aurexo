@@ -175,6 +175,18 @@ class INCOISOceanStateForecastAdapter(BaseMarineAdapter):
             retrieved_at=now,
             quality=DataQuality.GOOD,
             derivation_details=f"wave_period_s={profile['wave_period_s']};sector={sec}",
+            metadata={
+                "source": "INCOIS",
+                "observed_at": (now - timedelta(hours=2)).isoformat(),
+                "retrieved_at": now.isoformat(),
+                "lat": location.lat,
+                "lon": location.lon,
+                "variable": "significant_wave_height",
+                "value": profile["significant_wave_height_m"],
+                "unit": "m",
+                "quality": "good",
+                "source_url": "https://incois.gov.in/oceanservices/osfforecast.jsp",
+            },
         )
         evidences.append(ev_wave)
 
@@ -196,6 +208,18 @@ class INCOISOceanStateForecastAdapter(BaseMarineAdapter):
             valid_until=now + timedelta(hours=12),
             retrieved_at=now,
             quality=DataQuality.GOOD,
+            metadata={
+                "source": "INCOIS",
+                "observed_at": (now - timedelta(hours=2)).isoformat(),
+                "retrieved_at": now.isoformat(),
+                "lat": location.lat,
+                "lon": location.lon,
+                "variable": "wind",
+                "value": profile["wind_speed_knots"],
+                "unit": "knots",
+                "quality": "good",
+                "source_url": "https://incois.gov.in/oceanservices/osfforecast.jsp",
+            },
         )
         evidences.append(ev_wind)
 
@@ -218,6 +242,18 @@ class INCOISOceanStateForecastAdapter(BaseMarineAdapter):
             valid_until=now + timedelta(hours=12),
             retrieved_at=now,
             quality=DataQuality.GOOD,
+            metadata={
+                "source": "INCOIS",
+                "observed_at": (now - timedelta(hours=2)).isoformat(),
+                "retrieved_at": now.isoformat(),
+                "lat": location.lat,
+                "lon": location.lon,
+                "variable": "ocean_state",
+                "value": profile["sea_state"],
+                "unit": "status",
+                "quality": "good",
+                "source_url": "https://incois.gov.in/oceanservices/osfforecast.jsp",
+            },
         )
         evidences.append(ev_state)
 

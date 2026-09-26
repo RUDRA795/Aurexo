@@ -1,0 +1,8 @@
+{
+  "name": "Aurexo — Oceanic Ecosystem Intelligence & Multi-Agent Marine Twin",
+  "description": "Cinematic daylight marine intelligence command center with real-time agentic reasoning, 3D ocean environment, interactive digital twin telemetry, and realistic Sea Turtle AI companion.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

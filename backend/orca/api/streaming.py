@@ -50,6 +50,19 @@ async def cancel_agent_run(run_id: str, payload: CancelRunRequest | None = None)
     return {"status": "cancelled", "run_id": run_id, "reason": reason}
 
 
+@router.get("/events/{run_id}")
+async def get_run_events(run_id: str, after_sequence: int = 0) -> list[dict[str, Any]]:
+    """Retrieve journaled events for an active or completed agent execution run."""
+    manager = AgentRunManager.get_instance()
+    repo = manager.repository
+    try:
+        events = await repo.get_events(run_id=run_id, after_sequence=after_sequence)
+        return [ev.to_sse_dict() for ev in events]
+    except Exception as exc:
+        logger.warning("Could not retrieve events from DB for %s: %s", run_id, exc)
+        return []
+
+
 @router.post("/stream", response_class=EventSourceResponse)
 async def stream_agent_execution(
     payload: AgentStreamRequest,
@@ -65,9 +78,9 @@ async def stream_agent_execution(
     - Client disconnect does NOT cancel backend agent run.
     - Transport keepalive comments without burning sequence numbers.
     """
-    repo = EventJournalRepository()
+    manager = AgentRunManager.get_instance()
+    repo = manager.repository
     await repo.ensure_tables_exist()
-    manager = AgentRunManager.get_instance(repo)
 
     # 1. Resolve run_id, thread_id, trace_id
     run_id = payload.run_id or f"run_{uuid.uuid4().hex[:12]}"
@@ -81,7 +94,17 @@ async def stream_agent_execution(
         except ValueError:
             last_acked_seq = 0
 
-    # 2. Replay unacknowledged events from durable PostgreSQL event journal
+    # 2. Obtain or register broker for live distribution
+    broker = await manager.get_or_create_broker(
+        run_id=run_id,
+        thread_id=thread_id,
+        trace_id=trace_id,
+    )
+
+    # 3. Synchronously register subscriber queue BEFORE launching task so no early events are dropped
+    subscriber_queue = broker.create_subscriber_queue()
+
+    # 4. Replay unacknowledged events from durable event journal
     replayed_events = await repo.get_events(run_id=run_id, after_sequence=last_acked_seq)
     highest_seq = last_acked_seq
 
@@ -101,19 +124,12 @@ async def stream_agent_execution(
         for ev in replayed_events
     )
     if is_terminal:
+        broker.remove_subscriber_queue(subscriber_queue)
         return
 
-    # 3. Obtain or register broker for live distribution
-    broker = await manager.get_or_create_broker(
-        run_id=run_id,
-        thread_id=thread_id,
-        trace_id=trace_id,
-    )
-
-    # 4. Check if background run execution is already active
+    # 5. Check if background run execution is already active; launch if not
     handle = await manager.get_run_handle(run_id)
     if not handle or not handle.is_active:
-        # Start background agent pipeline execution if not already running
         from orca.services.streaming_runner import execute_agent_streaming_run
 
         task = asyncio.create_task(
@@ -128,8 +144,7 @@ async def stream_agent_execution(
         )
         await manager.register_run_task(run_id, task)
 
-    # 5. Stream live committed events with keepalive comments and disconnect detection
-    sub_iter = broker.subscribe().__aiter__()
+    # 6. Stream live committed events with keepalive comments and disconnect detection
     keepalive_interval = 15.0  # seconds
 
     try:
@@ -141,13 +156,11 @@ async def stream_agent_execution(
 
             try:
                 # Wait for next event or keepalive timeout
-                event = await asyncio.wait_for(sub_iter.__anext__(), timeout=keepalive_interval)
+                event = await asyncio.wait_for(subscriber_queue.get(), timeout=keepalive_interval)
             except asyncio.TimeoutError:
                 # Emit proxy keepalive comment (does NOT burn sequence numbers)
                 yield ServerSentEvent(comment="keepalive")
                 continue
-            except StopAsyncIteration:
-                break
 
             if event is None:
                 break
@@ -171,4 +184,4 @@ async def stream_agent_execution(
             ):
                 break
     finally:
-        pass
+        broker.remove_subscriber_queue(subscriber_queue)

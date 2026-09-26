@@ -68,6 +68,18 @@ class PFZRetrievalTool(BaseMarineTool):
                     valid_until=p.source_valid_until,
                     retrieved_at=res.retrieved_at,
                     quality=evidence_quality,
+                    metadata={
+                        "source": "INCOIS",
+                        "observed_at": (p.source_valid_from or utc_now()).isoformat(),
+                        "retrieved_at": res.retrieved_at.isoformat(),
+                        "lat": p.location.lat,
+                        "lon": p.location.lon,
+                        "variable": "pfz_point",
+                        "value": p.pfz_id,
+                        "unit": "coordinate",
+                        "quality": evidence_quality.value,
+                        "source_url": "https://incois.gov.in/portal/pfz.jsp",
+                    },
                 )
                 evidence_list.append(ev)
 

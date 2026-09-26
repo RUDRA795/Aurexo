@@ -4,7 +4,10 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pgvector.sqlalchemy import Vector
+try:
+    from pgvector.sqlalchemy import Vector
+except ImportError:
+    from sqlalchemy import JSON as Vector
 from sqlalchemy import Computed, DateTime, ForeignKey, Index, Integer, JSON, String, Text
 from sqlalchemy.dialects.postgresql import TSVECTOR, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship

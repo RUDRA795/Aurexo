@@ -1,21 +1,38 @@
-.env
-*.env
-.env.*
-!.env.example
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.venv/
-backend/.venv/
-backend/__pycache__/
-backend/.pytest_cache/
+# Node & Frontend
 node_modules/
 dist/
 build/
-.idea/
-.vscode/
-*.db
-*.sqlite
+.vite/
+.next/
+.cache/
+coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Logs & Temporary
+*.log
+*.tmp
 .DS_Store
-openapi.json
-*.tsbuildinfo
+Thumbs.db
+
+# IDE Local settings (retain shared .vscode recommendations)
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
